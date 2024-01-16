@@ -9,7 +9,7 @@ use std::{
 };
 use windows_sys::Win32::Foundation::HANDLE;
 
-pub fn path_from_id(id: FileId) -> io::Result<PathBuf> {
+pub fn path_from_id(id: &FileId) -> io::Result<PathBuf> {
     let file_handle = unsafe { file_handle_from_id(id)? };
     unsafe { path_from_handle(&file_handle) }
 }
@@ -51,7 +51,7 @@ unsafe fn path_from_handle(file: &fs::File) -> io::Result<PathBuf> {
 }
 
 /// Gets a file handle from an id.
-unsafe fn file_handle_from_id(file_id: FileId) -> io::Result<fs::File> {
+unsafe fn file_handle_from_id(file_id: &FileId) -> io::Result<fs::File> {
     use std::{os::raw::c_void, os::windows::prelude::*};
     use windows_sys::Win32::{
         Foundation::INVALID_HANDLE_VALUE,
@@ -67,7 +67,8 @@ unsafe fn file_handle_from_id(file_id: FileId) -> io::Result<fs::File> {
             volume_serial_number,
             file_id,
         } => {
-            let volume_path_name = get_volume_path_name_from_serial_number(volume_serial_number)?;
+            let volume_path_name =
+                get_volume_path_name_from_serial_number(volume_serial_number.clone())?;
             let file_id_descriptor = FILE_ID_DESCRIPTOR {
                 dwSize: mem::size_of::<FILE_ID_DESCRIPTOR>() as u32,
                 Type: ExtendedFileIdType,
