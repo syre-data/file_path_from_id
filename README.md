@@ -1,4 +1,4 @@
-# file-id-from-path
+# file_id_from_path
 
 Gets a file's path from its id.
 
