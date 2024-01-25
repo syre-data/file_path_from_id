@@ -173,6 +173,7 @@ unsafe fn get_volume_path_names(volume_name: &[u16]) -> Result<Vec<Vec<u16>>, Er
         let c = volume_paths[idx];
         if c == 0 {
             if volume_path.len() > 0 {
+                volume_path.push(0); // terminating null byte
                 volume_path_names.push(volume_path.clone());
                 volume_path.clear();
             }
