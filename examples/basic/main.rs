@@ -7,6 +7,8 @@ use std::time::Duration;
 
 const WATCH_PATH: &'static str = "watched";
 
+/// # Notes
+/// + Must be run from the `examples/basic` folder due to relative paths.
 fn main() {
     let (tx, rx) = mpsc::channel();
     let mut watcher = notify_debouncer_full::new_debouncer(
@@ -39,43 +41,45 @@ fn main() {
                     match &event.paths[..] {
                         [path] => {
                             let Some(info) = cache.cached_file_id(&path) else {
-                                println!("path not cached");
+                                println!("path not cached\n");
                                 continue;
                             };
 
                             match path_from_id(info) {
-                                Ok(path) => println!("found {path:?}"),
-                                Err(err) => println!("err {err:?}"),
+                                Ok(path) => println!("found {path:?}\n"),
+                                Err(err) => println!("err {err:?}\n"),
                             }
                         }
 
                         [from, to] => {
                             match cache.cached_file_id(&from) {
                                 None => {
-                                    println!("from path not cached");
+                                    println!("from path not cached\n");
                                 }
 
                                 Some(info) => match path_from_id(info) {
-                                    Ok(path) => println!("from {path:?}"),
-                                    Err(err) => println!("from err {err:?}"),
+                                    Ok(path) => println!("from {path:?}\n"),
+                                    Err(err) => println!("from err {err:?}\n"),
                                 },
                             }
 
                             match cache.cached_file_id(&to) {
                                 None => {
-                                    println!("to path not cached");
+                                    println!("to path not cached\n");
                                 }
 
                                 Some(info) => match path_from_id(info) {
-                                    Ok(path) => println!("to {path:?}"),
-                                    Err(err) => println!("to err {err:?}"),
+                                    Ok(path) => println!("to {path:?}\n"),
+                                    Err(err) => println!("to err {err:?}\n"),
                                 },
                             }
                         }
+
                         _ => {}
                     }
                 }
             }
+
             Err(err) => println!("ERR {err:?}\n"),
         }
     }

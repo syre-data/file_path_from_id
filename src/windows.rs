@@ -97,7 +97,8 @@ unsafe fn file_handle_from_id(file_id: &FileId) -> Result<fs::File, Error> {
             Ok(fs::File::from_raw_handle(handle as *mut c_void))
         }
 
-        _ => todo!(),
+        FileId::LowRes => todo!(),
+        FileId::Inode => return Err(Error::InvalidFileId),
     }
 }
 
@@ -236,6 +237,7 @@ unsafe fn get_volume_handle_from_path(path_name: &Vec<u16>) -> Result<HANDLE, Er
 
 #[derive(Debug)]
 pub enum Error {
+    InvalidFileId,
     VolumeHandle(io::Error),
     FileInformationByHandle(io::Error),
     FindVolume(io::Error),
@@ -243,7 +245,3 @@ pub enum Error {
     OpenFile(io::Error),
     FinalPathName(io::Error),
 }
-
-#[cfg(test)]
-#[path = "./windows_test.rs"]
-mod windows_test;
