@@ -97,8 +97,15 @@ unsafe fn file_handle_from_id(file_id: &FileId) -> Result<fs::File, Error> {
             Ok(fs::File::from_raw_handle(handle as *mut c_void))
         }
 
-        FileId::LowRes => todo!(),
-        FileId::Inode => return Err(Error::InvalidFileId),
+        FileId::LowRes {
+            volume_serial_number: _,
+            file_index: _,
+        } => todo!(),
+
+        FileId::Inode {
+            device_id: _,
+            inode_number: _,
+        } => return Err(Error::InvalidFileId),
     }
 }
 
