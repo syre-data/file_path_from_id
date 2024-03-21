@@ -1,5 +1,5 @@
 use file_path_from_id::path_from_id;
-use notify::{self, RecursiveMode, Watcher};
+use notify::{RecursiveMode, Watcher};
 use notify_debouncer_full::{DebounceEventResult, FileIdCache};
 use std::fs;
 use std::sync::mpsc;
