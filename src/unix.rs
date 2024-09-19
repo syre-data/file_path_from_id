@@ -3,6 +3,7 @@ use std::io;
 use std::path::PathBuf;
 use std::process::Command;
 
+#[cfg_attr(feature = "tracing", tracing::instrument(level = "debug"))]
 pub fn path_from_id(id: &FileId) -> Result<PathBuf, Error> {
     match id {
         FileId::Inode {
@@ -13,6 +14,7 @@ pub fn path_from_id(id: &FileId) -> Result<PathBuf, Error> {
     }
 }
 
+#[cfg_attr(feature = "tracing", tracing::instrument(level = "trace"))]
 fn get_path_from_id(device_id: &u64, inode_number: &u64) -> Result<PathBuf, Error> {
     let output = match Command::new("sh")
         .arg("-c")

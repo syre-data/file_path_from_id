@@ -9,12 +9,19 @@ use std::{
 };
 use windows_sys::Win32::Foundation::HANDLE;
 
+#[cfg_attr(feature = "tracing", tracing::instrument(level = "debug"))]
 pub fn path_from_id(id: &FileId) -> Result<PathBuf, Error> {
-    let file_handle = unsafe { file_handle_from_id(id)? };
-    unsafe { path_from_handle(&file_handle) }
+    let file = unsafe { file_handle_from_id(id)? };
+    unsafe { path_from_handle(&file) }
+}
+
+#[cfg_attr(feature = "tracing", tracing::instrument(level = "debug"))]
+pub fn path_from_file(file: &fs::File) -> Result<PathBuf, Error> {
+    unsafe { path_from_handle(file) }
 }
 
 // Gets the path to a file from its handle.
+#[cfg_attr(feature = "tracing", tracing::instrument(level = "trace"))]
 unsafe fn path_from_handle(file: &fs::File) -> Result<PathBuf, Error> {
     use windows_sys::core::PWSTR;
     use windows_sys::Win32::{
@@ -31,8 +38,14 @@ unsafe fn path_from_handle(file: &fs::File) -> Result<PathBuf, Error> {
     );
 
     if size == 0 {
+        #[cfg(feature = "tracing")]
+        tracing::trace!("could not get path from handle");
+
         Err(Error::FinalPathName(io::Error::last_os_error()))
     } else if size > MAX_PATH {
+        #[cfg(feature = "tracing")]
+        tracing::trace!("could not get path from handle");
+
         Err(Error::FinalPathName(io::Error::new(
             io::ErrorKind::OutOfMemory,
             format!("path buffer requires {size} bytes but only {MAX_PATH} were allocated"),
@@ -51,6 +64,7 @@ unsafe fn path_from_handle(file: &fs::File) -> Result<PathBuf, Error> {
 }
 
 /// Gets a file handle from an id.
+#[cfg_attr(feature = "tracing", tracing::instrument(level = "trace"))]
 unsafe fn file_handle_from_id(file_id: &FileId) -> Result<fs::File, Error> {
     use std::{os::raw::c_void, os::windows::prelude::*};
     use windows_sys::Win32::{
@@ -91,6 +105,9 @@ unsafe fn file_handle_from_id(file_id: &FileId) -> Result<fs::File, Error> {
             );
 
             if handle == INVALID_HANDLE_VALUE {
+                #[cfg(feature = "tracing")]
+                tracing::trace!("could not get file handle from id");
+
                 return Err(Error::OpenFile(io::Error::last_os_error()));
             }
 
@@ -110,6 +127,7 @@ unsafe fn file_handle_from_id(file_id: &FileId) -> Result<fs::File, Error> {
 }
 
 /// Gets the volume path from its serial number.
+#[cfg_attr(feature = "tracing", tracing::instrument(level = "trace"))]
 unsafe fn get_volume_path_name_from_serial_number(serial_number: u64) -> Result<Vec<u16>, Error> {
     use windows_sys::core::PWSTR;
     use windows_sys::Win32::{
@@ -121,6 +139,9 @@ unsafe fn get_volume_path_name_from_serial_number(serial_number: u64) -> Result<
 
     loop {
         if volume_handle == INVALID_HANDLE_VALUE {
+            #[cfg(feature = "tracing")]
+            tracing::trace!("could not get file handle from id");
+
             return Err(Error::FindVolume(io::Error::last_os_error()));
         }
 
@@ -143,6 +164,9 @@ unsafe fn get_volume_path_name_from_serial_number(serial_number: u64) -> Result<
                 FindVolumeClose(volume_handle as HANDLE);
                 break;
             } else {
+                #[cfg(feature = "tracing")]
+                tracing::trace!("could not get volume path name from serial number");
+
                 return Err(Error::FindVolume(io::Error::last_os_error()));
             }
         }
@@ -155,6 +179,7 @@ unsafe fn get_volume_path_name_from_serial_number(serial_number: u64) -> Result<
 }
 
 /// Get a paths within the given volume.
+#[cfg_attr(feature = "tracing", tracing::instrument(level = "trace"))]
 unsafe fn get_volume_path_names(volume_name: &[u16]) -> Result<Vec<Vec<u16>>, Error> {
     use windows_sys::core::PWSTR;
     use windows_sys::Win32::{
@@ -171,6 +196,9 @@ unsafe fn get_volume_path_names(volume_name: &[u16]) -> Result<Vec<Vec<u16>>, Er
     );
 
     if ret == 0 {
+        #[cfg(feature = "tracing")]
+        tracing::trace!("could not get volume path names");
+
         return Err(Error::VolumePathNames(io::Error::last_os_error()));
     }
 
@@ -195,6 +223,7 @@ unsafe fn get_volume_path_names(volume_name: &[u16]) -> Result<Vec<Vec<u16>>, Er
     Ok(volume_path_names)
 }
 
+#[cfg_attr(feature = "tracing", tracing::instrument(level = "trace"))]
 unsafe fn get_volume_serial_number_from_path(path_name: &Vec<u16>) -> Result<u64, Error> {
     use windows_sys::Win32::Storage::FileSystem::{
         FileIdInfo, GetFileInformationByHandleEx, FILE_ID_INFO,
@@ -210,12 +239,16 @@ unsafe fn get_volume_serial_number_from_path(path_name: &Vec<u16>) -> Result<u64
     );
 
     if ret == 0 {
+        #[cfg(feature = "tracing")]
+        tracing::trace!("could not get volume serial number from path");
+
         return Err(Error::FileInformationByHandle(io::Error::last_os_error()));
     }
 
     Ok(info.VolumeSerialNumber)
 }
 
+#[cfg_attr(feature = "tracing", tracing::instrument(level = "trace"))]
 unsafe fn get_volume_handle_from_path(path_name: &Vec<u16>) -> Result<HANDLE, Error> {
     use std::os::raw::c_void;
     use windows_sys::Win32::{
@@ -236,6 +269,9 @@ unsafe fn get_volume_handle_from_path(path_name: &Vec<u16>) -> Result<HANDLE, Er
     );
 
     if file_handle == INVALID_HANDLE_VALUE {
+        #[cfg(feature = "tracing")]
+        tracing::trace!("could not get volume handle from path");
+
         return Err(Error::VolumeHandle(io::Error::last_os_error()));
     }
 
@@ -251,4 +287,40 @@ pub enum Error {
     VolumePathNames(io::Error),
     OpenFile(io::Error),
     FinalPathName(io::Error),
+}
+
+#[cfg(test)]
+mod test {
+    use std::fs;
+
+    #[cfg(feature = "tracing")]
+    use test_log::test;
+
+    #[test]
+    pub fn get_path_from_id() {
+        const FILENAME: &str = "__tmp_id__";
+        let path = std::env::current_dir().unwrap().join(FILENAME);
+        let f = fs::File::create(&path).unwrap();
+        let id = file_id::get_file_id(&path).unwrap();
+
+        let path = fs::canonicalize(&path).unwrap();
+        drop(f);
+
+        let found = super::path_from_id(&id).unwrap();
+        fs::remove_file(&path).unwrap();
+        assert_eq!(found, path);
+    }
+
+    #[test]
+    pub fn get_path_from_file() {
+        const FILENAME: &str = "__tmp_handle__";
+        let path = std::env::current_dir().unwrap().join(FILENAME);
+        let f = fs::File::create(&path).unwrap();
+        let found = super::path_from_file(&f).unwrap();
+
+        let path = fs::canonicalize(&path).unwrap();
+        fs::remove_file(&path).unwrap();
+
+        assert_eq!(found, path);
+    }
 }
