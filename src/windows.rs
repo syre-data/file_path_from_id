@@ -23,19 +23,21 @@ pub fn path_from_file(file: &fs::File) -> Result<PathBuf, Error> {
 // Gets the path to a file from its handle.
 #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace"))]
 unsafe fn path_from_handle(file: &fs::File) -> Result<PathBuf, Error> {
-    use windows_sys::core::PWSTR;
     use windows_sys::Win32::{
         Foundation::MAX_PATH,
-        Storage::FileSystem::{GetFinalPathNameByHandleW, FILE_NAME_NORMALIZED},
+        Storage::FileSystem::{FILE_NAME_NORMALIZED, GetFinalPathNameByHandleW},
     };
+    use windows_sys::core::PWSTR;
 
     let path = [0; MAX_PATH as usize];
-    let size = GetFinalPathNameByHandleW(
-        file.as_raw_handle() as HANDLE,
-        path.as_ptr() as PWSTR,
-        MAX_PATH,
-        FILE_NAME_NORMALIZED,
-    );
+    let size = unsafe {
+        GetFinalPathNameByHandleW(
+            file.as_raw_handle() as HANDLE,
+            path.as_ptr() as PWSTR,
+            MAX_PATH,
+            FILE_NAME_NORMALIZED,
+        )
+    };
 
     if size == 0 {
         #[cfg(feature = "tracing")]
@@ -71,8 +73,8 @@ unsafe fn file_handle_from_id(file_id: &FileId) -> Result<fs::File, Error> {
         Foundation::INVALID_HANDLE_VALUE,
         Security::SECURITY_ATTRIBUTES,
         Storage::FileSystem::{
-            ExtendedFileIdType, OpenFileById, FILE_FLAG_BACKUP_SEMANTICS, FILE_GENERIC_READ,
-            FILE_ID_128, FILE_ID_DESCRIPTOR, FILE_ID_DESCRIPTOR_0, FILE_SHARE_READ,
+            ExtendedFileIdType, FILE_FLAG_BACKUP_SEMANTICS, FILE_GENERIC_READ, FILE_ID_128,
+            FILE_ID_DESCRIPTOR, FILE_ID_DESCRIPTOR_0, FILE_SHARE_READ, OpenFileById,
         },
     };
 
@@ -82,7 +84,7 @@ unsafe fn file_handle_from_id(file_id: &FileId) -> Result<fs::File, Error> {
             file_id,
         } => {
             let volume_path_name =
-                get_volume_path_name_from_serial_number(volume_serial_number.clone())?;
+                unsafe { get_volume_path_name_from_serial_number(volume_serial_number.clone())? };
 
             let file_id_descriptor = FILE_ID_DESCRIPTOR {
                 dwSize: mem::size_of::<FILE_ID_DESCRIPTOR>() as u32,
@@ -94,15 +96,17 @@ unsafe fn file_handle_from_id(file_id: &FileId) -> Result<fs::File, Error> {
                 },
             };
 
-            let volume_handle = get_volume_handle_from_path(&volume_path_name)?;
-            let handle = OpenFileById(
-                volume_handle as HANDLE,
-                &file_id_descriptor as *const FILE_ID_DESCRIPTOR,
-                FILE_GENERIC_READ,
-                FILE_SHARE_READ,
-                null() as *const SECURITY_ATTRIBUTES,
-                FILE_FLAG_BACKUP_SEMANTICS,
-            );
+            let volume_handle = unsafe { get_volume_handle_from_path(&volume_path_name)? };
+            let handle = unsafe {
+                OpenFileById(
+                    volume_handle as HANDLE,
+                    &file_id_descriptor as *const FILE_ID_DESCRIPTOR,
+                    FILE_GENERIC_READ,
+                    FILE_SHARE_READ,
+                    null() as *const SECURITY_ATTRIBUTES,
+                    FILE_FLAG_BACKUP_SEMANTICS,
+                )
+            };
 
             if handle == INVALID_HANDLE_VALUE {
                 #[cfg(feature = "tracing")]
@@ -111,7 +115,8 @@ unsafe fn file_handle_from_id(file_id: &FileId) -> Result<fs::File, Error> {
                 return Err(Error::OpenFile(io::Error::last_os_error()));
             }
 
-            Ok(fs::File::from_raw_handle(handle as *mut c_void))
+            let file = unsafe { fs::File::from_raw_handle(handle as *mut c_void) };
+            Ok(file)
         }
 
         FileId::LowRes {
@@ -129,13 +134,13 @@ unsafe fn file_handle_from_id(file_id: &FileId) -> Result<fs::File, Error> {
 /// Gets the volume path from its serial number.
 #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace"))]
 unsafe fn get_volume_path_name_from_serial_number(serial_number: u64) -> Result<Vec<u16>, Error> {
-    use windows_sys::core::PWSTR;
     use windows_sys::Win32::{
-        Foundation::{GetLastError, ERROR_NO_MORE_FILES, INVALID_HANDLE_VALUE, MAX_PATH},
+        Foundation::{ERROR_NO_MORE_FILES, GetLastError, INVALID_HANDLE_VALUE, MAX_PATH},
         Storage::FileSystem::{FindFirstVolumeW, FindNextVolumeW, FindVolumeClose},
     };
+    use windows_sys::core::PWSTR;
     let volume_name = [0; MAX_PATH as usize];
-    let volume_handle = FindFirstVolumeW(volume_name.as_ptr() as PWSTR, MAX_PATH);
+    let volume_handle = unsafe { FindFirstVolumeW(volume_name.as_ptr() as PWSTR, MAX_PATH) };
 
     loop {
         if volume_handle == INVALID_HANDLE_VALUE {
@@ -145,23 +150,27 @@ unsafe fn get_volume_path_name_from_serial_number(serial_number: u64) -> Result<
             return Err(Error::FindVolume(io::Error::last_os_error()));
         }
 
-        let volume_path_names = get_volume_path_names(&volume_name)?;
+        let volume_path_names = unsafe { get_volume_path_names(&volume_name)? };
         for path_name in volume_path_names {
-            let volume_path_sn = get_volume_serial_number_from_path(&path_name)?;
+            let volume_path_sn = unsafe { get_volume_serial_number_from_path(&path_name)? };
             if volume_path_sn == serial_number {
                 return Ok(path_name);
             }
         }
 
-        let ret = FindNextVolumeW(
-            volume_handle as HANDLE,
-            volume_name.as_ptr() as PWSTR,
-            MAX_PATH,
-        );
+        let ret = unsafe {
+            FindNextVolumeW(
+                volume_handle as HANDLE,
+                volume_name.as_ptr() as PWSTR,
+                MAX_PATH,
+            )
+        };
 
         if ret == 0 {
-            if GetLastError() == ERROR_NO_MORE_FILES {
-                FindVolumeClose(volume_handle as HANDLE);
+            if unsafe { GetLastError() } == ERROR_NO_MORE_FILES {
+                unsafe {
+                    FindVolumeClose(volume_handle as HANDLE);
+                }
                 break;
             } else {
                 #[cfg(feature = "tracing")]
@@ -181,19 +190,21 @@ unsafe fn get_volume_path_name_from_serial_number(serial_number: u64) -> Result<
 /// Get a paths within the given volume.
 #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace"))]
 unsafe fn get_volume_path_names(volume_name: &[u16]) -> Result<Vec<Vec<u16>>, Error> {
-    use windows_sys::core::PWSTR;
     use windows_sys::Win32::{
         Foundation::MAX_PATH, Storage::FileSystem::GetVolumePathNamesForVolumeNameW,
     };
+    use windows_sys::core::PWSTR;
 
     let volume_paths = [0; MAX_PATH as usize];
     let mut volume_paths_size: u32 = 0;
-    let ret = GetVolumePathNamesForVolumeNameW(
-        volume_name.as_ptr(),
-        volume_paths.as_ptr() as PWSTR,
-        MAX_PATH,
-        &mut volume_paths_size as *mut u32,
-    );
+    let ret = unsafe {
+        GetVolumePathNamesForVolumeNameW(
+            volume_name.as_ptr(),
+            volume_paths.as_ptr() as PWSTR,
+            MAX_PATH,
+            &mut volume_paths_size as *mut u32,
+        )
+    };
 
     if ret == 0 {
         #[cfg(feature = "tracing")]
@@ -226,17 +237,19 @@ unsafe fn get_volume_path_names(volume_name: &[u16]) -> Result<Vec<Vec<u16>>, Er
 #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace"))]
 unsafe fn get_volume_serial_number_from_path(path_name: &Vec<u16>) -> Result<u64, Error> {
     use windows_sys::Win32::Storage::FileSystem::{
-        FileIdInfo, GetFileInformationByHandleEx, FILE_ID_INFO,
+        FILE_ID_INFO, FileIdInfo, GetFileInformationByHandleEx,
     };
 
-    let file_handle = get_volume_handle_from_path(path_name)?;
-    let mut info: FILE_ID_INFO = mem::zeroed();
-    let ret = GetFileInformationByHandleEx(
-        file_handle,
-        FileIdInfo,
-        &mut info as *mut FILE_ID_INFO as _,
-        mem::size_of::<FILE_ID_INFO>() as u32,
-    );
+    let file_handle = unsafe { get_volume_handle_from_path(path_name)? };
+    let mut info: FILE_ID_INFO = unsafe { mem::zeroed() };
+    let ret = unsafe {
+        GetFileInformationByHandleEx(
+            file_handle,
+            FileIdInfo,
+            &mut info as *mut FILE_ID_INFO as _,
+            mem::size_of::<FILE_ID_INFO>() as u32,
+        )
+    };
 
     if ret == 0 {
         #[cfg(feature = "tracing")]
@@ -258,15 +271,17 @@ unsafe fn get_volume_handle_from_path(path_name: &Vec<u16>) -> Result<HANDLE, Er
         },
     };
 
-    let file_handle = CreateFileW(
-        path_name.as_ptr(),
-        0,
-        FILE_SHARE_READ,
-        null(),
-        OPEN_EXISTING,
-        FILE_FLAG_BACKUP_SEMANTICS,
-        null::<*mut c_void>() as HANDLE,
-    );
+    let file_handle = unsafe {
+        CreateFileW(
+            path_name.as_ptr(),
+            0,
+            FILE_SHARE_READ,
+            null(),
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS,
+            null::<*mut c_void>() as HANDLE,
+        )
+    };
 
     if file_handle == INVALID_HANDLE_VALUE {
         #[cfg(feature = "tracing")]
